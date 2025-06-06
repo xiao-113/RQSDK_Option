@@ -9,7 +9,7 @@ import numpy as np
 
 __config__ = {
     "base": {
-        "start_date": "20200601",
+        "start_date": "20250301",
         "end_date": "20250603",
         'frequency': '1m',
         "accounts": {
@@ -25,8 +25,8 @@ __config__ = {
         'sys_simulation': {
             'enabled': True,
             'matching_type': 'current_bar',
-            'volume_limit': False,  #关闭成交量限制
-            #'volume_percent': 0,
+            'volume_limit': False,
+            'volume_percent': 0,
         },
         'sys_analyser': {
             'plot': True,
@@ -77,13 +77,14 @@ def init(context):
                          expect_df=False)[0]
     #if_price = current_minute('000300.XSHG', fields = 'close').iloc[-1, -1]
     print(f"价格{if_price}")
-    call_strike = get_OTM_strike('C', if_price, 1)
-    put_strike = get_OTM_strike('P', if_price, 1)
-    print(f"认购/沽虚值1档行权价 {call_strike}/{put_strike}")
+    strike = get_nearest_strike(if_price)
+    # call_strike = get_OTM_strike('C', if_price, 1)
+    # put_strike = get_OTM_strike('P', if_price, 1)
+    # print(f"认购/沽虚值1档行权价 {call_strike}/{put_strike}")
     
     #获取目标行权价的看涨和看跌期权合约
-    context.s1 =  options.get_contracts(underlying='000300.XSHG', maturity=context.current_month, strike=call_strike)[0]
-    context.s2 = options.get_contracts(underlying='000300.XSHG', maturity=context.current_month, strike=put_strike)[1]
+    context.s1 =  options.get_contracts(underlying='000300.XSHG', maturity=context.current_month, strike=strike)[0]
+    context.s2 = options.get_contracts(underlying='000300.XSHG', maturity=context.current_month, strike=strike)[1]
 
     subscribe([context.s1, context.s2])
 
@@ -164,9 +165,8 @@ def iv_hv_signal(context):
         rolling_std = np.std(context.hist_iv_hv)
         upper_bound = rolling_mean + rolling_std
         
-        # 信号逻辑：隐历差 <= 上界时开仓(感觉应该是>=上边界时开仓，期权溢价过高更容易均值回归，双卖做空波动率)
-        # 两个方向均测试
-        iv_hv_signal = (current_iv_minus_hv >= upper_bound)
+        # 信号逻辑：隐历差 <= 上界时开仓
+        iv_hv_signal = (current_iv_minus_hv <= upper_bound)
     else:
         iv_hv_signal = False  # 数据不足不触发
     
@@ -300,14 +300,9 @@ def IVTS_signal(context):
         rolling_mean = np.mean(context.hist_IVTS)
         rolling_std = np.std(context.hist_IVTS)
         upper_bound = rolling_mean + rolling_std
-        lower_bound = rolling_mean - rolling_std
 
-        # 信号逻辑1：期限因子 >= 上界时开仓
+        # 信号逻辑：期限因子 >= 上界时开仓
         IVTS_signal = (current_IVTS >= upper_bound)
-        # 信号逻辑2：反向择时 期限因子在上下界之间开仓
-        # IVTS_signal = (lower_bound <= current_IVTS <= upper_bound)
-        # 信号逻辑3：期限因子 > 0 时即开仓
-        # IVTS_signal = (current_IVTS > 0)
     else:
         IVTS_signal = False #数据不足无法触发
 
@@ -377,7 +372,7 @@ def skew_index_signal(context):
 
     #当前偏度指数
     current_skew = current_P_weighted_iv - current_C_weighted_iv
-    print(f'当前偏度指数 {current_skew}')
+    print(f'当前期限结构因子 {current_skew}')
 
     context.hist_skew.append(current_skew)
     #保持只存储历史30日的数据
@@ -517,29 +512,29 @@ def sell_side_signal(context):
     return sell_side_signal
     
 def before_trading(context):
-    # context.signal_1 = iv_hv_signal(context)
-    # print(f'今日隐历差信号 {context.signal_1}')
-    # context.signal_2 = PCR_signal(context)
-    # print(f'今日比值PCR信号 {context.signal_2}')
-    # context.signal_3 = IVTS_signal(context)
-    # print(f'今日期限结构信号 {context.signal_3}')
+    context.signal_1 = iv_hv_signal(context)
+    print(f'今日隐历差信号 {context.signal_1}')
+    context.signal_2 = PCR_signal(context)
+    print(f'今日比值PCR信号 {context.signal_2}')
+    context.signal_3 = IVTS_signal(context)
+    print(f'今日期限结构信号 {context.signal_3}')
     context.signal_4 = skew_index_signal(context)
     print(f'今日偏度指数信号 {context.signal_4}')
-    # context.signal_5 = hold_PCR_signal(context)
-    # print(f'今日持仓PCR信号 {context.signal_5}')
-    # context.signal_6 = sell_side_signal(context)
-    # print(f'今日卖方市场识别信号 {context.signal_6}')
+    context.signal_5 = hold_PCR_signal(context)
+    print(f'今日持仓PCR信号 {context.signal_5}')
+    context.signal_6 = sell_side_signal(context)
+    print(f'今日卖方市场识别信号 {context.signal_6}')
 
-    # #信号合成
-    # context.combined_signal = all([
-    #                                 context.signal_1, 
-    #                                 context.signal_2, 
-    #                                 context.signal_3,
-    #                                 context.signal_4, 
-    #                                 context.signal_5, 
-    #                                 context.signal_6
-    #                             ])
-    # print(f'今日合成信号 {context.combined_signal}')
+    #信号合成
+    context.combined_signal = all([
+                                    context.signal_1, 
+                                    context.signal_2, 
+                                    context.signal_3,
+                                    context.signal_4, 
+                                    context.signal_5, 
+                                    context.signal_6
+                                ])
+    print(f'今日合成信号 {context.combined_signal}')
     #pass
 
 def handle_bar(context, bar_dict):
@@ -569,13 +564,13 @@ def handle_bar(context, bar_dict):
                                     frequency='1d',
                                     expect_df=False)[0]
 
-                new_call_strike = get_OTM_strike('C', if_price, 1)
-                new_put_strike = get_OTM_strike('P', if_price, 1)
+                new_strike = get_nearest_strike(if_price)
+                
                 #print(f"认购/沽虚值1档行权价 {call_strike}/{put_strike}")
                 
                 #获取目标行权价的看涨和看跌期权合约
-                context.s1 = options.get_contracts(underlying='000300.XSHG', maturity=next_month, strike=new_call_strike)[0]
-                context.s2 = options.get_contracts(underlying='000300.XSHG', maturity=next_month, strike=new_put_strike)[1]
+                context.s1 = options.get_contracts(underlying='000300.XSHG', maturity=next_month, strike=new_strike)[0]
+                context.s2 = options.get_contracts(underlying='000300.XSHG', maturity=next_month, strike=new_strike)[1]
                 
                 update_universe([context.s1, context.s2]) #更新合约池
         
@@ -583,14 +578,14 @@ def handle_bar(context, bar_dict):
 
                 logger.info(f"移仓完成 {context.s1} @行权价{new_call_strike}/{context.s2} @行权价{new_put_strike}")
             
-            if context.signal_4:
+            if context.combined_signal:
                 sell_open(context.s1, 3)
                 sell_open(context.s2, 3)
                 logger.info(f"今日开仓 {context.s1}/{context.s2}")
             
 
         elif normalized_time == time(14, 30):
-            if context.signal_4:
+            if context.combined_signal:
                 buy_close(context.s1, 3, close_today=True)
                 buy_close(context.s2, 3, close_today=True)
 
