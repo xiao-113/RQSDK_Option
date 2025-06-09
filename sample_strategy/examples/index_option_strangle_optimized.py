@@ -1,5 +1,6 @@
 import rqalpha_plus
 import rqalpha_mod_option
+import datetime
 from datetime import date, time, timedelta
 from dateutil.relativedelta import relativedelta
 import rqdatac
@@ -546,23 +547,17 @@ def before_trading(context):
 def handle_bar(context, bar_dict):
     context.counter += 1
     current_time = context.now.time()
-    #logger.info(f'当前时间 {current_time}')
-    # 标准化时间（去除微秒）
     normalized_time = current_time.replace(microsecond=0)
-
     
+    # 初始化逻辑（保持不变）
     if normalized_time == time(9, 31) and not context.initialized: 
         C_days_to_expire = rqdatac.instruments(context.s1).days_to_expire(context.now.date())
         P_days_to_expire = rqdatac.instruments(context.s2).days_to_expire(context.now.date())
         print(f'{context.s1}距离到期天数{C_days_to_expire}')
         print(f'{context.s2}距离到期天数{P_days_to_expire}')
-        # 验证合约是否到期
-        if C_days_to_expire==0 or P_days_to_expire==0:
         
+        if C_days_to_expire==0 or P_days_to_expire==0:
             logger.info(f"合约{context.s1}/{context.s2}到期:")
-            # print(f'{context.s1}距离到期天数{rqdatac.instruments(context.s1).days_to_expire(context.now.date())}')
-            # print(f'{context.s2}距离到期天数{rqdatac.instruments(context.s2).days_to_expire(context.now.date())}')
-            # # 获取次月合约
             next_month = (context.now + relativedelta(months=1)).strftime("%y%m")
             latest_trading_date = rqdatac.get_previous_trading_date(context.now.date(),n=1,market='cn')
             if_price = rqdatac.get_price(['000300.XSHG'], 
@@ -574,83 +569,102 @@ def handle_bar(context, bar_dict):
 
             new_call_strike = get_OTM_strike('C', if_price, 1)
             new_put_strike = get_OTM_strike('P', if_price, 1)
-            #print(f"认购/沽虚值1档行权价 {call_strike}/{put_strike}")
             
-            #获取目标行权价的看涨和看跌期权合约
             context.s1 = options.get_contracts(underlying='000300.XSHG', maturity=next_month, strike=new_call_strike)[0]
             context.s2 = options.get_contracts(underlying='000300.XSHG', maturity=next_month, strike=new_put_strike)[1]
-            print(context.s1)
-            update_universe([context.s1, context.s2]) #更新合约池
-    
-            context.rolled = True #标记合约更新
-
+            update_universe([context.s1, context.s2])
+            context.rolled = True
             logger.info(f"移仓完成 {context.s1} @行权价{new_call_strike}/{context.s2} @行权价{new_put_strike}")
 
-        context.price_df_1 = rqdatac.get_price(context.s1, context.now.date(), context.now.date(), '1m')
-        context.price_df_1 = context.price_df_1.reset_index()
-        context.price_df_2 = rqdatac.get_price(context.s2, context.now.date(), context.now.date(), '1m')
-        context.price_df_2 = context.price_df_2.reset_index()
+        # 初始化数据
+        context.price_df_1 = rqdatac.get_price(context.s1, context.now.date(), context.now.date(), '1m').reset_index()
+        context.price_df_2 = rqdatac.get_price(context.s2, context.now.date(), context.now.date(), '1m').reset_index()
         context.price_df_1['datetime'] = context.price_df_1['datetime'].dt.strftime('%H:%M:%S')
         context.price_df_2['datetime'] = context.price_df_2['datetime'].dt.strftime('%H:%M:%S')
-        context.price_df_1 = context.price_df_1.set_index(['datetime'])
-        context.price_df_2 = context.price_df_2.set_index(['datetime'])
-        # print(price_df_1)
-        # volume_1 = price_df_1.loc['09:45:00', 'volume']
-        # volume_2 = price_df_2.loc['09:45:00', 'volume']
+        context.price_df_1 = context.price_df_1.set_index('datetime')
+        context.price_df_2 = context.price_df_2.set_index('datetime')
         context.initialized = True
+        context.has_opened = False  # 新增：开仓状态标记
+        context.open_attempt_time = time(9, 35)  # 初始开仓尝试时间
+        context.open_attempt_count = 0  # 开仓尝试次数计数器
+        context.close_attempt_time = time(14, 25)  # 初始平仓尝试时间
+        context.close_attempt_count = 0  # 平仓尝试次数计数器
 
-    if normalized_time == time(9, 45):
+    # 开仓逻辑（仅在未开仓时尝试）
+    if not context.has_opened and normalized_time == context.open_attempt_time:
+        success = try_trade(
+            context,
+            action="开仓",
+            target_time=context.open_attempt_time,
+            trade_func=lambda: [sell_open(context.s1, 3), sell_open(context.s2, 3)],
+            trade_args=[]
+        )
         
-        # # 验证合约是否到期
-        # if not all(rqdatac.instruments(c).days_to_expire() >= 0 for c in [context.s1, context.s2]):
-        
-        #     logger.info(f"合约{context.s1}/{context.s2}到期")
-        
-        #     # # 获取次月合约
-        #     next_month = (context.now + relativedelta(months=1)).strftime("%y%m")
-        #     latest_trading_date = rqdatac.get_previous_trading_date(context.now.date(),n=1,market='cn')
-        #     if_price = rqdatac.get_price(['000300.XSHG'], 
-        #                         start_date=latest_trading_date, 
-        #                         end_date=latest_trading_date, 
-        #                         fields='close',
-        #                         frequency='1d',
-        #                         expect_df=False)[0]
-
-        #     new_call_strike = get_OTM_strike('C', if_price, 1)
-        #     new_put_strike = get_OTM_strike('P', if_price, 1)
-        #     #print(f"认购/沽虚值1档行权价 {call_strike}/{put_strike}")
-            
-        #     #获取目标行权价的看涨和看跌期权合约
-        #     context.s1 = options.get_contracts(underlying='000300.XSHG', maturity=next_month, strike=new_call_strike)[0]
-        #     context.s2 = options.get_contracts(underlying='000300.XSHG', maturity=next_month, strike=new_put_strike)[1]
-        #     print(context.s1)
-        #     update_universe([context.s1, context.s2]) #更新合约池
-    
-        #     context.rolled = True #标记合约更新
-
-        #     logger.info(f"移仓完成 {context.s1} @行权价{new_call_strike}/{context.s2} @行权价{new_put_strike}")
-        
-        volume_1 = context.price_df_1.loc['09:45:00', 'volume']
-        volume_2 = context.price_df_2.loc['09:45:00', 'volume']
-        if all([volume_1>0, volume_2>0]): #需要判断是否双腿均能成交
-            sell_open(context.s1, 3) #price_or_style = 'MarketOrder')
-            sell_open(context.s2, 3) #price_or_style = 'MarketOrder')
-            logger.info("完成双腿下单条件判断！允许下单。")
-            logger.info(f"今日开仓 {context.s1}/{context.s2}")
-        
-
-    elif normalized_time == time(14, 30):
-        volume_1 = context.price_df_1.loc['14:30:00', 'volume']
-        volume_2 = context.price_df_2.loc['14:30:00', 'volume']
-        if all([volume_1>0, volume_2>0]):
-            buy_close(context.s1, 3, close_today=True)
-            buy_close(context.s2, 3, close_today=True)
-
-            logger.info(f"平今仓完成 {context.s1}/{context.s2}")
+        if success:
+            context.has_opened = True
+            context.open_time = context.now
+            logger.info("成功开仓，记录开仓状态")
         else:
-            logger.info(f"今日无建仓 {context.s1}/{context.s2}")
+            # 开仓失败，准备下一次尝试
+            context.open_attempt_count += 1
+            if context.open_attempt_count < 30:  # 最多尝试30分钟
+                # 计算下一个尝试时间
+                next_attempt_time = (datetime.datetime.combine(datetime.date.today(), context.open_attempt_time) + 
+                                   datetime.timedelta(minutes=1)).time()
+                context.open_attempt_time = next_attempt_time
+                logger.info(f"开仓失败，将在{next_attempt_time}再次尝试")
+            else:
+                logger.warning("开仓尝试次数已达上限，放弃开仓")
+
+    # 平仓逻辑（仅在已开仓时尝试）
+    elif context.has_opened and normalized_time == context.close_attempt_time:
+        success = try_trade(
+            context,
+            action="平仓",
+            target_time=context.close_attempt_time,
+            trade_func=lambda: [
+                buy_close(context.s1, 3, close_today=True),
+                buy_close(context.s2, 3, close_today=True)
+            ],
+            trade_args=[]
+        )
         
+        if success:
+            context.has_opened = False
+            logger.info("成功平仓，重置开仓状态")
+        else:
+            # 平仓失败，准备下一次尝试
+            context.close_attempt_count += 1
+            if context.close_attempt_count < 30:  # 最多尝试30分钟
+                # 计算下一个尝试时间
+                next_attempt_time = (datetime.datetime.combine(datetime.date.today(), context.close_attempt_time) + 
+                                   datetime.timedelta(minutes=1)).time()
+                context.close_attempt_time = next_attempt_time
+                logger.info(f"平仓失败，将在{next_attempt_time}再次尝试")
+            else:
+                logger.warning("平仓尝试次数已达上限，放弃平仓")
+
+def try_trade(context, action, target_time, trade_func, trade_args):
+    """改进后的交易尝试函数（结合normalized_time判断）"""
+    time_str = target_time.strftime("%H:%M:%S")
+    
+    try:
+        # 获取成交量数据
+        volume_1 = context.price_df_1.loc[time_str, 'volume']
+        volume_2 = context.price_df_2.loc[time_str, 'volume']
         
+        # 检查成交量是否满足条件
+        if volume_1 > 0 and volume_2 > 0:
+            trade_func(*trade_args)
+            logger.info(f"{action}成功，时间: {time_str}")
+            return True
+            
+        logger.info(f"{time_str} 成交量不足（{volume_1}/{volume_2}），继续尝试")
+        return False
+        
+    except KeyError:
+        logger.info(f"{time_str} 数据不存在，跳过")
+        return False    
 
 def after_trading(context):
     pass
