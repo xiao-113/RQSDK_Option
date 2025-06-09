@@ -221,7 +221,7 @@ def IVTS_signal(context):
     if not all(rqdatac.instruments(c).days_to_expire() >= 0 for c in option_list):
         # # 获取次月合约
         next_month = (context.now + relativedelta(months=1)).strftime("%y%m")
-        next_next_month = next_month = (context.now + relativedelta(months=2)).strftime("%y%m")
+        next_next_month = (context.now + relativedelta(months=2)).strftime("%y%m")
         option_list = rqdatac.options.get_contracts(underlying='000300.XSHG', maturity = next_month)
         next_option_list = rqdatac.options.get_contracts(underlying='000300.XSHG', maturity = next_next_month)
     #获取当月合约和次月合约当日成交量
@@ -517,14 +517,15 @@ def sell_side_signal(context):
     return sell_side_signal
     
 def before_trading(context):
+    context.initialized = False #每日盘前记号初始化
     # context.signal_1 = iv_hv_signal(context)
     # print(f'今日隐历差信号 {context.signal_1}')
     # context.signal_2 = PCR_signal(context)
     # print(f'今日比值PCR信号 {context.signal_2}')
     # context.signal_3 = IVTS_signal(context)
     # print(f'今日期限结构信号 {context.signal_3}')
-    context.signal_4 = skew_index_signal(context)
-    print(f'今日偏度指数信号 {context.signal_4}')
+    # context.signal_4 = skew_index_signal(context)
+    # print(f'今日偏度指数信号 {context.signal_4}')
     # context.signal_5 = hold_PCR_signal(context)
     # print(f'今日持仓PCR信号 {context.signal_5}')
     # context.signal_6 = sell_side_signal(context)
@@ -536,11 +537,11 @@ def before_trading(context):
     #                                 context.signal_2, 
     #                                 context.signal_3,
     #                                 context.signal_4, 
-    #                                 context.signal_5, 
-    #                                 context.signal_6
-    #                             ])
+    #                                 context.signal_5 
+                                    #context.signal_6
+                                # ])
     # print(f'今日合成信号 {context.combined_signal}')
-    #pass
+    pass
 
 def handle_bar(context, bar_dict):
     context.counter += 1
@@ -550,53 +551,106 @@ def handle_bar(context, bar_dict):
     normalized_time = current_time.replace(microsecond=0)
 
     
-    if not context.initialized: 
-
-
-        if normalized_time == time(9, 45):
-            # 验证合约是否到期
-            if not all(rqdatac.instruments(c).days_to_expire() >= 0 for c in [context.s1, context.s2]):
-            
-                logger.info(f"合约{context.s1}/{context.s2}到期")
-            
-                # # 获取次月合约
-                next_month = (context.now + relativedelta(months=1)).strftime("%y%m")
-                latest_trading_date = rqdatac.get_previous_trading_date(context.now.date(),n=1,market='cn')
-                if_price = rqdatac.get_price(['000300.XSHG'], 
-                                    start_date=latest_trading_date, 
-                                    end_date=latest_trading_date, 
-                                    fields='close',
-                                    frequency='1d',
-                                    expect_df=False)[0]
-
-                new_call_strike = get_OTM_strike('C', if_price, 1)
-                new_put_strike = get_OTM_strike('P', if_price, 1)
-                #print(f"认购/沽虚值1档行权价 {call_strike}/{put_strike}")
-                
-                #获取目标行权价的看涨和看跌期权合约
-                context.s1 = options.get_contracts(underlying='000300.XSHG', maturity=next_month, strike=new_call_strike)[0]
-                context.s2 = options.get_contracts(underlying='000300.XSHG', maturity=next_month, strike=new_put_strike)[1]
-                
-                update_universe([context.s1, context.s2]) #更新合约池
+    if normalized_time == time(9, 31) and not context.initialized: 
+        C_days_to_expire = rqdatac.instruments(context.s1).days_to_expire(context.now.date())
+        P_days_to_expire = rqdatac.instruments(context.s2).days_to_expire(context.now.date())
+        print(f'{context.s1}距离到期天数{C_days_to_expire}')
+        print(f'{context.s2}距离到期天数{P_days_to_expire}')
+        # 验证合约是否到期
+        if C_days_to_expire==0 or P_days_to_expire==0:
         
-                context.rolled = True #标记合约更新
+            logger.info(f"合约{context.s1}/{context.s2}到期:")
+            # print(f'{context.s1}距离到期天数{rqdatac.instruments(context.s1).days_to_expire(context.now.date())}')
+            # print(f'{context.s2}距离到期天数{rqdatac.instruments(context.s2).days_to_expire(context.now.date())}')
+            # # 获取次月合约
+            next_month = (context.now + relativedelta(months=1)).strftime("%y%m")
+            latest_trading_date = rqdatac.get_previous_trading_date(context.now.date(),n=1,market='cn')
+            if_price = rqdatac.get_price(['000300.XSHG'], 
+                                start_date=latest_trading_date, 
+                                end_date=latest_trading_date, 
+                                fields='close',
+                                frequency='1d',
+                                expect_df=False)[0]
 
-                logger.info(f"移仓完成 {context.s1} @行权价{new_call_strike}/{context.s2} @行权价{new_put_strike}")
+            new_call_strike = get_OTM_strike('C', if_price, 1)
+            new_put_strike = get_OTM_strike('P', if_price, 1)
+            #print(f"认购/沽虚值1档行权价 {call_strike}/{put_strike}")
             
-            if context.signal_4:
-                sell_open(context.s1, 3)
-                sell_open(context.s2, 3)
-                logger.info(f"今日开仓 {context.s1}/{context.s2}")
+            #获取目标行权价的看涨和看跌期权合约
+            context.s1 = options.get_contracts(underlying='000300.XSHG', maturity=next_month, strike=new_call_strike)[0]
+            context.s2 = options.get_contracts(underlying='000300.XSHG', maturity=next_month, strike=new_put_strike)[1]
+            print(context.s1)
+            update_universe([context.s1, context.s2]) #更新合约池
+    
+            context.rolled = True #标记合约更新
+
+            logger.info(f"移仓完成 {context.s1} @行权价{new_call_strike}/{context.s2} @行权价{new_put_strike}")
+
+        context.price_df_1 = rqdatac.get_price(context.s1, context.now.date(), context.now.date(), '1m')
+        context.price_df_1 = context.price_df_1.reset_index()
+        context.price_df_2 = rqdatac.get_price(context.s2, context.now.date(), context.now.date(), '1m')
+        context.price_df_2 = context.price_df_2.reset_index()
+        context.price_df_1['datetime'] = context.price_df_1['datetime'].dt.strftime('%H:%M:%S')
+        context.price_df_2['datetime'] = context.price_df_2['datetime'].dt.strftime('%H:%M:%S')
+        context.price_df_1 = context.price_df_1.set_index(['datetime'])
+        context.price_df_2 = context.price_df_2.set_index(['datetime'])
+        # print(price_df_1)
+        # volume_1 = price_df_1.loc['09:45:00', 'volume']
+        # volume_2 = price_df_2.loc['09:45:00', 'volume']
+        context.initialized = True
+
+    if normalized_time == time(9, 45):
+        
+        # # 验证合约是否到期
+        # if not all(rqdatac.instruments(c).days_to_expire() >= 0 for c in [context.s1, context.s2]):
+        
+        #     logger.info(f"合约{context.s1}/{context.s2}到期")
+        
+        #     # # 获取次月合约
+        #     next_month = (context.now + relativedelta(months=1)).strftime("%y%m")
+        #     latest_trading_date = rqdatac.get_previous_trading_date(context.now.date(),n=1,market='cn')
+        #     if_price = rqdatac.get_price(['000300.XSHG'], 
+        #                         start_date=latest_trading_date, 
+        #                         end_date=latest_trading_date, 
+        #                         fields='close',
+        #                         frequency='1d',
+        #                         expect_df=False)[0]
+
+        #     new_call_strike = get_OTM_strike('C', if_price, 1)
+        #     new_put_strike = get_OTM_strike('P', if_price, 1)
+        #     #print(f"认购/沽虚值1档行权价 {call_strike}/{put_strike}")
             
+        #     #获取目标行权价的看涨和看跌期权合约
+        #     context.s1 = options.get_contracts(underlying='000300.XSHG', maturity=next_month, strike=new_call_strike)[0]
+        #     context.s2 = options.get_contracts(underlying='000300.XSHG', maturity=next_month, strike=new_put_strike)[1]
+        #     print(context.s1)
+        #     update_universe([context.s1, context.s2]) #更新合约池
+    
+        #     context.rolled = True #标记合约更新
 
-        elif normalized_time == time(14, 30):
-            if context.signal_4:
-                buy_close(context.s1, 3, close_today=True)
-                buy_close(context.s2, 3, close_today=True)
+        #     logger.info(f"移仓完成 {context.s1} @行权价{new_call_strike}/{context.s2} @行权价{new_put_strike}")
+        
+        volume_1 = context.price_df_1.loc['09:45:00', 'volume']
+        volume_2 = context.price_df_2.loc['09:45:00', 'volume']
+        if all([volume_1>0, volume_2>0]): #需要判断是否双腿均能成交
+            sell_open(context.s1, 3) #price_or_style = 'MarketOrder')
+            sell_open(context.s2, 3) #price_or_style = 'MarketOrder')
+            logger.info("完成双腿下单条件判断！允许下单。")
+            logger.info(f"今日开仓 {context.s1}/{context.s2}")
+        
 
-                logger.info(f"平今仓完成 {context.s1}/{context.s2}")
-            else:
-                logger.info(f"今日无建仓 {context.s1}/{context.s2}")
+    elif normalized_time == time(14, 30):
+        volume_1 = context.price_df_1.loc['14:30:00', 'volume']
+        volume_2 = context.price_df_2.loc['14:30:00', 'volume']
+        if all([volume_1>0, volume_2>0]):
+            buy_close(context.s1, 3, close_today=True)
+            buy_close(context.s2, 3, close_today=True)
+
+            logger.info(f"平今仓完成 {context.s1}/{context.s2}")
+        else:
+            logger.info(f"今日无建仓 {context.s1}/{context.s2}")
+        
+        
 
 def after_trading(context):
     pass
