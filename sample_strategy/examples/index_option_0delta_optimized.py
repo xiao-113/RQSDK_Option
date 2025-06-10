@@ -573,7 +573,8 @@ def sell_side_signal(context):
 def before_trading(context):
     context.initialized = False #每日盘前记号初始化
     print('----目标delta中性合约组合准备----')
-
+    context.order_current_month = context.now.strftime("%y%m")
+    print(f'当前月份{context.order_current_month}')
     # 检查当前合约状态
     C_days_to_expire = rqdatac.instruments(context.s1).days_to_expire(context.now.date())
     P_days_to_expire = rqdatac.instruments(context.s2).days_to_expire(context.now.date())
@@ -585,7 +586,7 @@ def before_trading(context):
         next_month = (context.now + relativedelta(months=1)).strftime("%y%m")
         context.order_current_month = next_month #标记当前合约到期月份
     else:
-        context.order_current_month = context.now.strftime("%y%m")
+        context.order_current_month = context.s1[2:6]
     print(f'当前合约到期月份 {context.order_current_month}')
      
     

@@ -83,3 +83,21 @@ rqalpha-plus run -f 环境中策略文件所在文件夹/<策略文件名称>.py
 
    
 
+**运行日内平值双卖策略**
+
+```bash
+rqalpha-plus run -f examples/index_option_straddle_optimized.py -p
+```
+
+**运行日内虚值一档双卖策略**
+
+```bash
+rqalpha-plus run -f examples/index_option_strangle_optimized.py -p
+```
+
+**运行日内delta中性双卖策略**
+
+```bash
+rqalpha-plus run -f examples/index_option_0delta_optimized.py -p
+```
+
