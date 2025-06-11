@@ -12,7 +12,7 @@ import numpy as np
 
 __config__ = {
     "base": {
-        "start_date": "20200601",
+        "start_date": "20240920",
         "end_date": "20250603",
         'frequency': '1m',
         "accounts": {
@@ -107,7 +107,8 @@ def init(context):
     best_P_delta = None  
     if not C_option_list or not P_option_list:
         print("期权列表为空，跳过计算")  
-    else:    
+    else: 
+        print(f'Call期权列表{C_option_list}')   
         # 遍历所有Call和Put组合
         for C_option in C_option_list:
             # 获取Call的delta值
@@ -593,7 +594,7 @@ def before_trading(context):
     #切换合约:每日选择接近delta中性的合约组合
     # #切换合约
     #获取delta中性跨式组合
-    #获取认购、认沽侧行权价列表（暂取左右4挡之内）
+    #获取认购、认沽侧行权价列表（暂取左右5挡之内）
     latest_trading_date = rqdatac.get_previous_trading_date(context.now.date(),n=1,market='cn')
     if_price = rqdatac.get_price(['000300.XSHG'], 
                             start_date=latest_trading_date, 
@@ -602,8 +603,8 @@ def before_trading(context):
                             frequency='1d',
                             expect_df=False)[0]
     #认购/认沽侧行权价挡位
-    call_strike_list = [get_OTM_strike('C', if_price, n) for n in range(6)]
-    put_strike_list = [get_OTM_strike('P', if_price, n) for n in range(6)]
+    call_strike_list = [get_OTM_strike('C', if_price, n) for n in range(5)]
+    put_strike_list = [get_OTM_strike('P', if_price, n) for n in range(5)]
 
     #当月or次月合约认购侧
     C_option_list = [] #初始化
@@ -628,18 +629,52 @@ def before_trading(context):
     best_C_delta = None  
     best_P_delta = None  
     if not C_option_list or not P_option_list:
-        print("期权列表为空，跳过计算")  
-    else:    
+        print("期权列表为空，跳过计算")
+    else:
+        print(f'call期权列表{C_option_list}')
+        print(f'put期权列表{P_option_list}')
+        
         # 遍历所有Call和Put组合
         for C_option in C_option_list:
-            # 获取Call的delta值
-            C_delta = options.get_greeks(C_option, latest_trading_date, latest_trading_date, 
-                                        fields='delta', model='implied_forward')['delta'].iloc[-1]
+            # print(f'Call {C_option}')
+            
+            # 获取Call的delta值（带重试逻辑）
+            C_delta = None
+            n_days_back = 1
+            while C_delta is None and n_days_back <= 5:  # 最多回溯5个交易日
+                temp_date = rqdatac.get_previous_trading_date(context.now.date(), n=n_days_back, market='cn')
+                greeks_data = options.get_greeks(C_option, temp_date, temp_date, 
+                                            fields='delta', model='implied_forward')
+                # print(f'获取到的delta{greeks_data}')
+                if greeks_data is not None and not greeks_data.empty:  # 先检查是否为None
+                    C_delta = greeks_data['delta'].iloc[-1]
+                n_days_back += 1
+            
+            if C_delta is None:
+                print(f"无法获取Call期权 {C_option} 的delta值，跳过")
+                continue
+                
+            # print(f'C_option的delta {C_delta}')
             
             for P_option in P_option_list:
-                # 获取Put的delta值
-                P_delta = options.get_greeks(P_option, latest_trading_date, latest_trading_date, 
-                                        fields='delta', model='implied_forward')['delta'].iloc[-1]
+                # print(f'Put {P_option}')
+                
+                # 获取Put的delta值（带重试逻辑）
+                P_delta = None
+                n_days_back = 1
+                while P_delta is None and n_days_back <= 5:  # 最多回溯5个交易日
+                    temp_date = rqdatac.get_previous_trading_date(context.now.date(), n=n_days_back, market='cn')
+                    greeks_data = options.get_greeks(P_option, temp_date, temp_date, 
+                                                fields='delta', model='implied_forward')
+                    if greeks_data is not None and not greeks_data.empty:  # 先检查是否为None
+                        P_delta = greeks_data['delta'].iloc[-1]
+                    n_days_back += 1
+                
+                if P_delta is None:
+                    print(f"无法获取Put期权 {P_option} 的delta值，跳过")
+                    continue
+                    
+                # print(f'P_option的delta {P_delta}')
                 
                 # 计算delta中性偏离度（绝对值之和）
                 delta_diff = abs(C_delta + P_delta)  # Put的delta本身是负值
@@ -651,12 +686,25 @@ def before_trading(context):
                     best_P_option = P_option
                     best_C_delta = C_delta
                     best_P_delta = P_delta
+
         # 输出结果
-        print(f"最接近delta中性的组合:认购期权: {best_C_option}, Delta: {best_C_delta:.4f}; 认沽期权: {best_P_option}, Delta: {best_P_delta:.4f}")
-        print(f"Delta偏离度: {min_delta_diff:.4f}")
-        #获取目标Delta中性跨式期权合约
-        context.s1 = best_C_option
-        context.s2 = best_P_option
+        if best_C_option and best_P_option:
+            print(f"最接近delta中性的组合:")
+            print(f"认购期权: {best_C_option}, Delta: {best_C_delta:.4f}")
+            print(f"认沽期权: {best_P_option}, Delta: {best_P_delta:.4f}")
+            print(f"Delta偏离度: {min_delta_diff:.4f}")
+            
+            # 获取目标Delta中性跨式期权合约
+            context.s1 = best_C_option
+            context.s2 = best_P_option
+        else:
+            print("未能找到有效的delta中性组合，选取虚值一档合约：")
+            context.s1 = C_option_list[0]
+            context.s2 = P_option_list[0]
+            # 这里可以添加备用选择逻辑，比如选择最接近平值的合约
+
+        # context.s1 = best_C_option
+        # context.s2 = best_P_option
             
         update_universe([context.s1, context.s2]) #更新合约池
         context.rolled = True
