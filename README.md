@@ -382,7 +382,7 @@ rqalpha-plus run -f examples/index_option_0delta_optimized.py -p
 
 
 
-![image-20250612084841874](C:\Users\15158\AppData\Roaming\Typora\typora-user-images\image-20250612084841874.png)
+![image-20250612084841874](./result_plot/index_option_straddle_optimized_base.png)
 
 日内平值双卖基础策略（每日开仓平仓）本金1000万
 
