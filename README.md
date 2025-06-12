@@ -382,7 +382,16 @@ rqalpha-plus run -f examples/index_option_0delta_optimized.py -p
 
 
 
+
+
+日内平值双卖基础策略（每日开仓平仓）本金1000万，双边3手，故由于本金设置问题可以收益率仅供参考，主要看曲线
+
 ![image-20250612084841874](./result_plot/index_option_straddle_optimized_base.png)
 
-日内平值双卖基础策略（每日开仓平仓）本金1000万
+日内虚值一档双卖基础策略（每日开平仓）本金1000万，双边3手，故由于本金设置问题可以收益率仅供参考，主要看曲线
 
+![](./result_plot/index_option_strangle_optimized_base.png)
+
+日内delta中性组合双卖（每日开平仓）本金1000万，双边3手，故由于本金设置问题可以收益率仅供参考，主要看曲线
+
+![](./result_plot/index_option_0delta_optimized_base.png)
