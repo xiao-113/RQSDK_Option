@@ -406,3 +406,7 @@ rqalpha-plus run -f examples/ETF_option_strangle_optimized.py -p
 日内delta中性组合双卖（每日开平仓）本金1000万，双边3手，故由于本金设置问题可以收益率仅供参考，主要看曲线
 
 ![](./result_plot/index_option_0delta_optimized_base.png)
+
+日内delta中性组合双卖（每日开平仓）本金100万，双边3手
+
+![](./result_plot/index_option_0delta_optimized_base2.png)
